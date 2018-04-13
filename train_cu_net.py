@@ -7,6 +7,7 @@ import numpy as np
 import os, time, model, pickle
 import logging, pdb
 
+
 def distort_imgs(data):
     """ data augumentation """
     x1, x2, x3, x4, y = data
@@ -92,10 +93,10 @@ def main(task='all', data_size='half'):
         raise ValueError("can't find preprocess data, please execute prepare_data_with_valid.py first")
     data_path = "./data/train_dev_all/" + "dataset_{}.npz".format(data_size)
     npzfile = np.load(data_path)
-    X_train = np.reshape(npzfile['arr_0'], (-1, 31, 240, 240, 4))
-    y_train = np.reshape(npzfile['arr_1'], (-1, 31, 240, 240, 1))
-    X_test =  np.reshape(npzfile['arr_2'], (-1, 31, 240, 240, 4))
-    y_test =  np.reshape(npzfile['arr_3'], (-1, 31, 240, 240, 1))
+    X_train = np.reshape(npzfile['arr_0'], (-1, 5, 240, 240, 4))
+    y_train = np.reshape(npzfile['arr_1'], (-1, 5, 240, 240, 1))
+    X_test =  np.reshape(npzfile['arr_2'], (-1, 5, 240, 240, 4))
+    y_test =  np.reshape(npzfile['arr_3'], (-1, 5, 240, 240, 1))
 
     if task == 'all':
         y_train = (y_train > 0).astype(int)
@@ -113,18 +114,18 @@ def main(task='all', data_size='half'):
         exit("Unknow task %s" % task)
 
     ###======================== HYPER-PARAMETERS ============================###
-    batch_size = 1
-    steps = 31
+    batch_size = 3
+    #steps = 5
     lr = 0.0001
     # lr_decay = 0.5
     # decay_every = 100
     beta1 = 0.9
     n_epoch = 100
-    print_freq_step = 50
+    print_freq_step = 200
     ###======================== SHOW DATA ===================================###
     ###show one slice
     nw, nh, nz = 240, 240, 4
-    nl = 31
+    nl = 5#steps for lstm
     X = np.asarray(X_train[0])
     y = np.asarray(y_train[0])
     # print(X.shape, X.min(), X.max()) # (240, 240, 4) -0.380588 2.62761
@@ -154,7 +155,6 @@ def main(task='all', data_size='half'):
         iou_loss = tl.cost.iou_coe(out_seg, t_seg, axis=[0,1,2,3,4])
         dice_hard = tl.cost.dice_hard_coe(out_seg, t_seg, axis=[0,1,2,3,4])
         loss = dice_loss
-        pdb.set_trace()
         ## test losses
         test_out_seg = net_test.outputs
         test_dice_loss = 1 - tl.cost.dice_coe(test_out_seg, t_seg, axis=[0,1,2,3,4])#, 'jaccard', epsilon=1e-5)
@@ -209,12 +209,12 @@ def main(task='all', data_size='half'):
             # for i in range(nl):
             #     vis_imgs(b_images[0][i], b_labels[0][i], 'samples/{}/_train_im_{}.png'.format(task, i))
             #update network
+
             _, _dice, _iou, _diceh, out = sess.run([train_op,
                     dice_loss, iou_loss, dice_hard, net.outputs],
                     {t_image: b_images, t_seg: b_labels})
             total_dice += _dice; total_iou += _iou; total_dice_hard += _diceh
             n_batch += 1
-
             ## you can show the predition here:
             # vis_imgs2(b_images[0], b_labels[0], out[0], "samples/{}/_tmp.png".format(task))
             # exit()
@@ -225,10 +225,6 @@ def main(task='all', data_size='half'):
             if n_batch % print_freq_step == 0:
                 logger.info("Epoch %d step %d 1-dice: %f hard-dice: %f iou: %f took %fs (2d with distortion)"
                 % (epoch, n_batch, _dice, _diceh, _iou, time.time()-step_time))
-                if _dice > 0.9 and _diceh < 0.1:
-                    for i in range(batch_size):
-                        for j in range(steps):#slices
-                            vis_imgs2(b_images[i][j], b_labels[i][j], out[i][j], "samples/{}/train_problem_{}.png".format(task, j))
 
             ## check model fail
             if np.isnan(_dice):
@@ -241,11 +237,11 @@ def main(task='all', data_size='half'):
 
         ## save a predition of training set
         for i in range(batch_size):
-            if np.max(b_images[i][20]) > 0:
-                vis_imgs2(b_images[i][20], b_labels[i][20], out[i][20], "samples/{}/train_{}.png".format(task, epoch))
+            if np.max(b_images[i][2]) > 0:
+                vis_imgs2(b_images[i][2], b_labels[i][2], out[i][2], "samples/{}/train_{}.png".format(task, epoch))
                 break
             elif i == batch_size-1:
-                vis_imgs2(b_images[i][20], b_labels[i][20], out[i][20], "samples/{}/train_{}.png".format(task, epoch))
+                vis_imgs2(b_images[i][2], b_labels[i][2], out[i][2], "samples/{}/train_{}.png".format(task, epoch))
 
         ###======================== EVALUATION ==========================###
         total_dice, total_iou, total_dice_hard, n_batch = 0, 0, 0, 0
@@ -263,11 +259,11 @@ def main(task='all', data_size='half'):
         logger.info(" task: {}".format(task))
         ## save a predition of test set
         for i in range(batch_size):
-            if np.max(b_images[i][20]) > 0:
-                vis_imgs2(b_images[i][20], b_labels[i][20], out[i][20], "samples/{}/test_{}.png".format(task, epoch))
+            if np.max(b_images[i][2]) > 0:
+                vis_imgs2(b_images[i][2], b_labels[i][2], out[i][2], "samples/{}/test_{}.png".format(task, epoch))
                 break
             elif i == batch_size-1:
-                vis_imgs2(b_images[i][20], b_labels[i][20], out[i][20], "samples/{}/test_{}.png".format(task, epoch))
+                vis_imgs2(b_images[i][2], b_labels[i][2], out[i][2], "samples/{}/test_{}.png".format(task, epoch))
 
         ###======================== SAVE MODEL ==========================###
         tl.files.save_npz(net.all_params, name=save_dir+'/cu_net_{}.npz'.format(task), sess=sess)

@@ -9,26 +9,40 @@ from tensorlayer.layers import *
 class SqueezeLayer(Layer):
   def __init__(
       self,
-      layer = None,
-      name ='squeeze',
+      prev_layer,
+      axis=None,
+      name ='squeeze'
   ):
       # check layer name (fixed)
-      Layer.__init__(self, layer=layer, name=name)
+      Layer.__init__(self, prev_layer=prev_layer, name=name)
 
       # the input of this layer is the output of previous layer (fixed)
-      self.inputs = layer.outputs
-      self.outpus = tf.squeeze(self.inputs)
+      self.inputs = prev_layer.outputs
+      self.outputs = tf.squeeze(self.inputs, axis=axis)
 
-class SplitLayer(Layer):
-    def __init__(
-        self,
-        layer=None,
-        axis=0,
-        name='split'
-    ):
-        Layer.__init__(self, layer=layer, name=name)
-        self.inputs = layer.outputs
-        self.outputs = tf.split(self.inputs, num_or_size_splits=4, axis=3)
+def SplitLayer(prev_layer, axis=0, name='split'):
+    inputs = prev_layer.outputs
+    with tf.variable_scope(name):
+        outputs = tf.split(inputs, num_or_size_splits=4, axis=axis)
+
+    net_new = []
+    scope_name = tf.get_variable_scope().name
+    if scope_name:
+        full_name = scope_name + '/' + name
+    else:
+        full_name = name
+
+    for i, _v in enumerate(outputs):
+        n = Layer(prev_layer=prev_layer, name=full_name + '_' + str(i))
+        n.outputs = outputs[i]
+        # n.all_layers = list(layer.all_layers)
+        # n.all_params = list(layer.all_params)
+        # n.all_drop = dict(layer.all_drop)
+        # n.all_layers.append(inputs)
+
+        net_new.append(n)
+
+    return net_new
 
 
 def u_net(x, is_train=False, reuse=False, n_out=1):
@@ -72,16 +86,14 @@ def u_net(x, is_train=False, reuse=False, n_out=1):
 
 def cmc(input, index):
     filter = {1: 64, 2:128, 3:256, 4:512}
-    inchannel = int(input.outputs._shape[3])
-    stack = StackLayer(input, axis=4, name='encoder_stack_{}'.format(index))
-    trans1 =  TransposeLayer(stack, perm=[0, 1, 2, 4, 3])
-    triconv1 = Conv3dLayer(trans1,
+    stack = StackLayer(input, axis=3, name='encoder_stack_{}'.format(index))
+    triconv1 = Conv3dLayer(stack,
                            act=tf.nn.relu,
-                           shape=(1, 1, 4, inchannel, filter[index]),
+                           shape=(1, 1, 4, int(stack.outputs._shape[4]), filter[index]),
                            strides=(1, 1, 1, 1, 1),
                            padding='VALID',
-                           name='conv3d_1')
-    triconv1 = SqueezeLayer(triconv1, name='squeeze_1')
+                           name='conv3d_{}'.format(index))
+    triconv1 = SqueezeLayer(triconv1, axis=3, name='squeeze_{}'.format(index))
     return triconv1
 
 def cu_net(x, is_train=False, reuse=False, n_out=1):
@@ -91,33 +103,33 @@ def cu_net(x, is_train=False, reuse=False, n_out=1):
         for i in range(ns):
             with tf.variable_scope('cu_net_encoder', reuse= True if i > 0 else None):
                 inputs = InputLayer(x[:,i,:,:,:], name='input_{}'.format(i))
-                inputs = UnStackLayer(inputs, axis=3, name='unstack_inputs')
+                inputs = SplitLayer(inputs, axis=3, name='split_inputs')
                 #Multi-Modal Encoder
                 en_output_1, en_output_2, en_output_3, en_output_4 = [], [], [], []
                 for idx, input in enumerate(inputs):
-                    conv1 = Conv2d(input, 64, (3, 3), act=tf.nn.relu, name='conv1_1')
-                    conv1 = Conv2d(conv1, 64, (3, 3), act=tf.nn.relu, name='conv1_2')
-                    pool1 = MaxPool2d(conv1, (2, 2), name='pool1')# shape= (batch_size, 120, 120, 64)
-                    en_output_1.append(pool1)
-                    conv2 = Conv2d(pool1, 128, (3, 3), act=tf.nn.relu, name='conv2_1')
-                    conv2 = Conv2d(conv2, 128, (3, 3), act=tf.nn.relu, name='conv2_2')
-                    pool2 = MaxPool2d(conv2, (2, 2), name='pool2')# shape= (batch_size, 60, 60, 128)
-                    en_output_2.append(pool2)
-                    conv3 = Conv2d(pool2, 256, (3, 3), act=tf.nn.relu, name='conv3_1')
-                    conv3 = Conv2d(conv3, 256, (3, 3), act=tf.nn.relu, name='conv3_2')
-                    pool3 = MaxPool2d(conv3, (2, 2), name='pool3')#  shape= (batch_size, 30, 30, 256)
-                    en_output_3.append(pool3)
-                    conv4 = Conv2d(pool3, 512, (3, 3), act=tf.nn.relu, name='conv4_1')
-                    conv4 = Conv2d(conv4, 512, (3, 3), act=tf.nn.relu, name='conv4_2')
-                    pool4 = MaxPool2d(conv4, (2, 2), name='pool4')# shape= (batch_size, 15, 15, 512)
-                    en_output_4.append(pool4)
+                    with tf.variable_scope('multimod_encoder', reuse= True if idx > 0 else None):
+                        conv1 = Conv2d(input, 64, (3, 3), act=tf.nn.relu, name='conv1_1')
+                        conv1 = Conv2d(conv1, 64, (3, 3), act=tf.nn.relu, name='conv1_2')
+                        pool1 = MaxPool2d(conv1, (2, 2), name='pool1')# shape= (batch_size, 120, 120, 64)
+                        en_output_1.append(pool1)
+                        conv2 = Conv2d(pool1, 128, (3, 3), act=tf.nn.relu, name='conv2_1')
+                        conv2 = Conv2d(conv2, 128, (3, 3), act=tf.nn.relu, name='conv2_2')
+                        pool2 = MaxPool2d(conv2, (2, 2), name='pool2')# shape= (batch_size, 60, 60, 128)
+                        en_output_2.append(pool2)
+                        conv3 = Conv2d(pool2, 256, (3, 3), act=tf.nn.relu, name='conv3_1')
+                        conv3 = Conv2d(conv3, 256, (3, 3), act=tf.nn.relu, name='conv3_2')
+                        pool3 = MaxPool2d(conv3, (2, 2), name='pool3')#  shape= (batch_size, 30, 30, 256)
+                        en_output_3.append(pool3)
+                        conv4 = Conv2d(pool3, 512, (3, 3), act=tf.nn.relu, name='conv4_1')
+                        conv4 = Conv2d(conv4, 512, (3, 3), act=tf.nn.relu, name='conv4_2')
+                        pool4 = MaxPool2d(conv4, (2, 2), name='pool4')# shape= (batch_size, 15, 15, 512)
+                        en_output_4.append(pool4)
 
                 #Cross-Modality Convolution
                 cmc_output_1.append(cmc(en_output_1, 1))# 155[] shape= (batch_size, 120, 120, 64)
                 cmc_output_2.append(cmc(en_output_2, 2))# 155[] shape= (batch_size, 60, 60, 128)
                 cmc_output_3.append(cmc(en_output_3, 3))# 155[] shape= (batch_size, 30, 30, 256)
                 cmc_output_4.append(cmc(en_output_4, 4))# 155[] shape= (batch_size, 15, 15, 512)
-
         stack = StackLayer(cmc_output_4, axis=1, name='cmc_stack')
         clstm = ConvLSTMLayer(stack,
                               cell_shape=(int(stack.outputs._shape[2]), int(stack.outputs._shape[3])),
@@ -128,8 +140,8 @@ def cu_net(x, is_train=False, reuse=False, n_out=1):
         de_outputs = []
         for index, layer in enumerate(unstack):
             with tf.variable_scope('cu_net_decoder', reuse= True if index > 0 else None):
-                up4 = DeConv2d(layer, 256, (3, 3), (nx/8, ny/8), (2, 2), name='deconv3')# shape= (batch_size, 30, 30, 256)
-                up3 = ConcatLayer([up4, cmc_output_3[index]], 3, name='concat3')# shape= (batch_size, 30, 30, 512)
+                up4 = DeConv2d(layer, 256, (3, 3), (nx/8, ny/8), (2, 2), name='deconv4')# shape= (batch_size, 30, 30, 256)
+                up4 = ConcatLayer([up4, cmc_output_3[index]], 3, name='concat4')# shape= (batch_size, 30, 30, 512)
                 conv4 = Conv2d(up4, 256, (3, 3), act=tf.nn.relu, name='uconv4_1')# shape= (batch_size, 30, 30, 256)
                 conv4 = Conv2d(conv4, 256, (3, 3), act=tf.nn.relu, name='uconv4_2')
                 up3 = DeConv2d(conv4, 128, (3, 3), (nx/4, ny/4), (2, 2), name='deconv3')# shape= (batch_size, 60, 60, 128)
@@ -142,8 +154,8 @@ def cu_net(x, is_train=False, reuse=False, n_out=1):
                 conv2 = Conv2d(conv2, 64, (3, 3), act=tf.nn.relu, name='uconv2_2')
                 output = DeConv2d(conv2, 1, (3, 3), (nx/1, ny/1), (2, 2), name='deconv1')# shape = (batch_size, 240, 240, 1)
                 # output = Conv2d(up, n_out, (1, 1), act=tf.nn.sigmoid, name='output')
-                outputs.append(output)
-        output_stack = StackLayer(outputs, axis=1, name='output_stack')
+                de_outputs.append(output)
+        output_stack = StackLayer(de_outputs, axis=1, name='output_stack')
     return output_stack
 # def u_net(x, is_train=False, reuse=False, pad='SAME', n_out=2):
 #     """ Original U-Net for cell segmentataion

@@ -198,21 +198,20 @@ def main(task='all', data_size='half'):
             #step_time = time.time()
             ## data augumentation for a batch of Flair, T1, T1c, T2 images
             # and label maps synchronously.
-            if method == 'u_net':
-                data = tl.prepro.threading_data([_ for _ in zip(images[:,:,:,0, np.newaxis],
-                        images[:,:,:,1, np.newaxis], images[:,:,:,2, np.newaxis],
-                        images[:,:,:,3, np.newaxis], labels)],
-                        fn=distort_imgs) # (10, 5, 240, 240, 1)
-                b_images = data[:,0:4,:,:,:]  # (10, 4, 240, 240, 1)
-                b_labels = data[:,4,:,:,:]
-                b_images = b_images.transpose((0,2,3,1,4))#(10, 240, 240, 4, 1)
-                b_images.shape = (batch_size, nw, nh, nz)#(10, 240, 240, 4)
-            ## update network
-                _, _dice, _iou, _diceh, out = sess.run([train_op,
-                        dice_loss, iou_loss, dice_hard, net.outputs],
-                        {t_image: b_images, t_seg: b_labels})
-                total_dice += _dice; total_iou += _iou; total_dice_hard += _diceh
-                n_batch += 1
+            data = tl.prepro.threading_data([_ for _ in zip(images[:,:,:,0, np.newaxis],
+                    images[:,:,:,1, np.newaxis], images[:,:,:,2, np.newaxis],
+                    images[:,:,:,3, np.newaxis], labels)],
+                    fn=distort_imgs) # (10, 5, 240, 240, 1)
+            b_images = data[:,0:4,:,:,:]  # (10, 4, 240, 240, 1)
+            b_labels = data[:,4,:,:,:]
+            b_images = b_images.transpose((0,2,3,1,4))#(10, 240, 240, 4, 1)
+            b_images.shape = (batch_size, nw, nh, nz)#(10, 240, 240, 4)
+        ## update network
+            _, _dice, _iou, _diceh, out = sess.run([train_op,
+                    dice_loss, iou_loss, dice_hard, net.outputs],
+                    {t_image: b_images, t_seg: b_labels})
+            total_dice += _dice; total_iou += _iou; total_dice_hard += _diceh
+            n_batch += 1
 
             ## you can show the predition here:
             # vis_imgs2(b_images[0], b_labels[0], out[0], "samples/{}/_tmp.png".format(task))
