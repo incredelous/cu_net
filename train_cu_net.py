@@ -6,6 +6,7 @@ import tensorlayer as tl
 import numpy as np
 import os, time, model, pickle
 import logging, pdb
+import sys
 
 
 def distort_imgs(data):
@@ -13,19 +14,18 @@ def distort_imgs(data):
     x1, x2, x3, x4, y = data
     # x1, x2, x3, x4, y = tl.prepro.flip_axis_multi([x1, x2, x3, x4, y],  # previous without this, hard-dice=83.7
     #                         axis=0, is_random=True) # up down
-    x1, x2, x3, x4, y = tl.prepro.flip_axis_multi([x1, x2, x3, x4, y],
-                            axis=1, is_random=True) # left right
-    x1, x2, x3, x4, y = tl.prepro.elastic_transform_multi([x1, x2, x3, x4, y],
-                            alpha=720, sigma=24, is_random=True)
-    x1, x2, x3, x4, y = tl.prepro.rotation_multi([x1, x2, x3, x4, y], rg=20,
-                            is_random=True, fill_mode='constant') # nearest, constant
-    x1, x2, x3, x4, y = tl.prepro.shift_multi([x1, x2, x3, x4, y], wrg=0.10,
-                            hrg=0.10, is_random=True, fill_mode='constant')
-    x1, x2, x3, x4, y = tl.prepro.shear_multi([x1, x2, x3, x4, y], 0.05,
-                            is_random=True, fill_mode='constant')
-    x1, x2, x3, x4, y = tl.prepro.zoom_multi([x1, x2, x3, x4, y],
-                            zoom_range=[0.9, 1.1], is_random=True,
-                            fill_mode='constant')
+    # x1, x2, x3, x4, y = tl.prepro.flip_axis_multi([x1, x2, x3, x4, y],
+    #                         axis=1, is_random=True) # left right
+    # x1, x2, x3, x4, y = tl.prepro.elastic_transform_multi([x1, x2, x3, x4, y],
+    #                         alpha=720, sigma=24, is_random=True)
+    # x1, x2, x3, x4, y = tl.prepro.rotation_multi([x1, x2, x3, x4, y], rg=20,
+    #                         is_random=True) # nearest, constant
+    # x1, x2, x3, x4, y = tl.prepro.shift_multi([x1, x2, x3, x4, y], wrg=0.10,
+    #                         hrg=0.10, is_random=True)
+    # x1, x2, x3, x4, y = tl.prepro.shear_multi([x1, x2, x3, x4, y], 0.05,
+    #                         is_random=True)
+    # x1, x2, x3, x4, y = tl.prepro.zoom_multi([x1, x2, x3, x4, y],
+    #                         zoom_range=[0.9, 1.1], is_random=True)
     return x1, x2, x3, x4, y
 
 def vis_imgs(X, y, path):
@@ -50,6 +50,11 @@ def vis_imgs2(X, y_, y, path):
         X[:,:,3,np.newaxis], y_, y]), size=(1, 6),
         image_path=path)
 
+def sensitivity(output, target, axis=None):
+    TP = tf.reduce_sum(output, target, axis=axis)
+    TN = tf.count_nonzero()
+    FP = tf.count_nonzero(target, axis=axis) - TP
+
 # def reshape_dataset(dataset):
 #     dataset_reshape = []
 #     set = []
@@ -65,6 +70,7 @@ def vis_imgs2(X, y_, y, path):
 def main(task='all', data_size='half'):
     ## Create folder to save trained model and result images
     save_dir = "checkpoint"
+    load_checkpoint = False
     tl.files.exists_or_mkdir(save_dir)
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
@@ -89,9 +95,9 @@ def main(task='all', data_size='half'):
     # Label 1: necrotic and non-enhancing tumor
     # Label 2: edema
     # Label 4: enhancing tumor
-    if not os.path.exists("./data/train_dev_all/" + "dataset_{}.npz".format(data_size)):
+    if not os.path.exists("./data/train_dev_all/" + "dataset_{}_miccai18.npz".format(data_size)):
         raise ValueError("can't find preprocess data, please execute prepare_data_with_valid.py first")
-    data_path = "./data/train_dev_all/" + "dataset_{}.npz".format(data_size)
+    data_path = "./data/train_dev_all/" + "dataset_{}_miccai18.npz".format(data_size)
     npzfile = np.load(data_path)
     X_train = np.reshape(npzfile['arr_0'], (-1, 5, 240, 240, 4))
     y_train = np.reshape(npzfile['arr_1'], (-1, 5, 240, 240, 1))
@@ -111,10 +117,12 @@ def main(task='all', data_size='half'):
         y_train = (y_train == 4).astype(int)
         y_test = (y_test == 4).astype(int)
     else:
-        exit("Unknow task %s" % task)
+        sys.exit("Unknow task %s" % task)
 
     ###======================== HYPER-PARAMETERS ============================###
     batch_size = 3
+    smooth = 1e-5
+    threshold = 0.5
     #steps = 5
     lr = 0.0001
     # lr_decay = 0.5
@@ -152,14 +160,14 @@ def main(task='all', data_size='half'):
 
         out_seg = net.outputs
         dice_loss = 1 - tl.cost.dice_coe(out_seg, t_seg, axis=[0,1,2,3,4])#, 'jaccard', epsilon=1e-5)
-        iou_loss = tl.cost.iou_coe(out_seg, t_seg, axis=[0,1,2,3,4])
-        dice_hard = tl.cost.dice_hard_coe(out_seg, t_seg, axis=[0,1,2,3,4])
+        # iou_loss = tl.cost.iou_coe(out_seg, t_seg, axis=[0,1,2,3,4])
+        # dice_hard = tl.cost.dice_hard_coe(out_seg, t_seg, axis=[0,1,2,3,4])
         loss = dice_loss
         ## test losses
         test_out_seg = net_test.outputs
         test_dice_loss = 1 - tl.cost.dice_coe(test_out_seg, t_seg, axis=[0,1,2,3,4])#, 'jaccard', epsilon=1e-5)
-        test_iou_loss = tl.cost.iou_coe(test_out_seg, t_seg, axis=[0,1,2,3,4])
-        test_dice_hard = tl.cost.dice_hard_coe(test_out_seg, t_seg, axis=[0,1,2,3,4])
+        # test_iou_loss = tl.cost.iou_coe(test_out_seg, t_seg, axis=[0,1,2,3,4])
+        # test_dice_hard = tl.cost.dice_hard_coe(test_out_seg, t_seg, axis=[0,1,2,3,4])
 
         t_vars = tl.layers.get_variables_with_name('cu_net', True, True)
         with tf.device('/gpu:0'):
@@ -170,8 +178,9 @@ def main(task='all', data_size='half'):
         ###======================== LOAD MODEL ==============================###
         tl.layers.initialize_global_variables(sess)
         ## load existing model if possible
-        tl.files.load_and_assign_npz(sess=sess, name=save_dir+'/cu_net_{}.npz'.format(task), network=net)
-        ###======================== TRAINING ================================###
+        if load_checkpoint:
+            tl.files.load_and_assign_npz(sess=sess, name=save_dir+'/cu_net_{}.npz'.format(task), network=net)
+    ###======================== TRAINING ================================###
     for epoch in range(0, n_epoch+1):
         epoch_time = time.time()
         ## update decay learning rate at the beginning of a epoch
@@ -185,7 +194,7 @@ def main(task='all', data_size='half'):
         #     log = " ** init lr: %f  decay_every_epoch: %d, lr_decay: %f" % (lr, decay_every, lr_decay)
         #     print(log)
 
-        total_dice, total_iou, total_dice_hard, n_batch = 0, 0, 0, 0
+        total_loss, total_dice, total_sens, total_spec, n_batch = 0, 0, 0, 0, 0
         for batch in tl.iterate.minibatches(inputs=X_train, targets=y_train,
                                     batch_size=batch_size, shuffle=True):
             images, labels = batch
@@ -209,61 +218,72 @@ def main(task='all', data_size='half'):
             # for i in range(nl):
             #     vis_imgs(b_images[0][i], b_labels[0][i], 'samples/{}/_train_im_{}.png'.format(task, i))
             #update network
-
-            _, _dice, _iou, _diceh, out = sess.run([train_op,
-                    dice_loss, iou_loss, dice_hard, net.outputs],
+            _, _dice_loss, _out = sess.run([train_op,
+                    dice_loss, net.outputs],
                     {t_image: b_images, t_seg: b_labels})
-            total_dice += _dice; total_iou += _iou; total_dice_hard += _diceh
+            _pred = _out
+            _pred[_pred > threshold] = 1.; _pred[_pred <= threshold] = 0.
+            TP = np.sum(_pred * b_labels, axis=None)
+            TN = b_labels.size - np.count_nonzero(_pred, axis=None) - np.count_nonzero(b_labels, axis=None) + TP
+            FN = np.count_nonzero(b_labels, axis=None) - TP
+            FP = np.count_nonzero(_pred, axis=None) - TP
+            _sens = (TP + smooth) / (TP + FN + smooth); _spec = (TN + smooth) / (TN + FP + smooth)
+            _dice = 2*(TP + smooth) / (FP + FN + TP + smooth)
+            # total_dice += _dice; total_iou += _iou; total_dice_hard += _diceh
+            total_loss += _dice_loss; total_dice += _dice; total_sens += _sens; total_spec += _spec
             n_batch += 1
-            ## you can show the predition here:
-            # vis_imgs2(b_images[0], b_labels[0], out[0], "samples/{}/_tmp.png".format(task))
-            # exit()
 
-            # if _dice == 1: # DEBUG
-            #     print("DEBUG")
-            #     vis_imgs2(b_images[0], b_labels[0], out[0], "samples/{}/_debug.png".format(task))
             if n_batch % print_freq_step == 0:
-                logger.info("Epoch %d step %d 1-dice: %f hard-dice: %f iou: %f took %fs (2d with distortion)"
-                % (epoch, n_batch, _dice, _diceh, _iou, time.time()-step_time))
+                logger.info("Epoch %d step %d dice_loss: %.5f dice: %.5f sensitivity: %.5f specificity: %.5f took %fs (2d with distortion)"
+                % (epoch, n_batch, _dice_loss, _dice, _sens, _spec, time.time()-step_time))
 
             ## check model fail
             if np.isnan(_dice):
-                exit(" ** NaN loss found during training, stop training")
-            if np.isnan(out).any():
-                exit(" ** NaN found in output images during training, stop training")
+                sys.exit(" ** NaN loss found during training, stop training")
+            if np.isnan(_out).any():
+                sys.exit(" ** NaN found in output images during training, stop training")
 
-        logger.info(" ** Epoch [%d/%d] train 1-dice: %f hard-dice: %f iou: %f took %fs (2d with distortion)" %
-                (epoch, n_epoch, total_dice/n_batch, total_dice_hard/n_batch, total_iou/n_batch, time.time()-epoch_time))
+        logger.info(" ** Epoch [%d/%d] train dice_loss: %.5f dice: %.5f sensitivity: %.5f specificity: %.5f took %fs (2d with distortion)" %
+                (epoch, n_epoch, total_loss/n_batch, total_dice/n_batch, total_sens/n_batch, total_spec/n_batch, time.time()-epoch_time))
 
         ## save a predition of training set
         for i in range(batch_size):
             if np.max(b_images[i][2]) > 0:
-                vis_imgs2(b_images[i][2], b_labels[i][2], out[i][2], "samples/{}/train_{}.png".format(task, epoch))
+                vis_imgs2(b_images[i][2], b_labels[i][2], _out[i][2], "samples/{}/train_{}.png".format(task, epoch))
                 break
             elif i == batch_size-1:
-                vis_imgs2(b_images[i][2], b_labels[i][2], out[i][2], "samples/{}/train_{}.png".format(task, epoch))
+                vis_imgs2(b_images[i][2], b_labels[i][2], _out[i][2], "samples/{}/train_{}.png".format(task, epoch))
 
         ###======================== EVALUATION ==========================###
-        total_dice, total_iou, total_dice_hard, n_batch = 0, 0, 0, 0
+        total_loss, total_dice, total_sens, total_spec, n_batch = 0, 0, 0, 0, 0
         for batch in tl.iterate.minibatches(inputs=X_test, targets=y_test,
                                         batch_size=batch_size, shuffle=True):
             b_images, b_labels = batch
-            _dice, _iou, _diceh, out = sess.run([test_dice_loss,
-                    test_iou_loss, test_dice_hard, net_test.outputs],
+            _dice_loss, _out = sess.run([test_dice_loss,
+                    net_test.outputs],
                     {t_image: b_images, t_seg: b_labels})
-            total_dice += _dice; total_iou += _iou; total_dice_hard += _diceh
+            _pred = _out
+            _pred[_pred > threshold] = 1.; _pred[_pred <= threshold] = 0.
+            TP = np.sum(_pred * b_labels, axis=None)
+            TN = b_labels.size - np.count_nonzero(_pred, axis=None) - np.count_nonzero(b_labels, axis=None) + TP
+            FN = np.count_nonzero(b_labels, axis=None) - TP
+            FP = np.count_nonzero(_pred, axis=None) - TP
+            _sens = (TP + smooth) / (TP + FN + smooth); _spec = (TN + smooth) / (TN + FP + smooth)
+            _dice = 2*(TP + smooth) / (FP + FN + TP + smooth)
+            # total_dice += _dice; total_iou += _iou; total_dice_hard += _diceh
+            total_loss += _dice_loss; total_dice += _dice; total_sens += _sens; total_spec += _spec
             n_batch += 1
 
-        logger.info(" **"+" "*17+"test 1-dice: %f hard-dice: %f iou: %f (2d no distortion)" %
-                (total_dice/n_batch, total_dice_hard/n_batch, total_iou/n_batch))
+        logger.info(" **"+" "*17+"test dice_loss: %.5f dice: %.5f sensitivity: %.5f specificity: %.5f (2d no distortion)" %
+                (total_loss/n_batch, total_dice/n_batch, total_sens/n_batch, total_spec/n_batch))
         logger.info(" task: {}".format(task))
         ## save a predition of test set
         for i in range(batch_size):
             if np.max(b_images[i][2]) > 0:
-                vis_imgs2(b_images[i][2], b_labels[i][2], out[i][2], "samples/{}/test_{}.png".format(task, epoch))
+                vis_imgs2(b_images[i][2], b_labels[i][2], _out[i][2], "samples/{}/test_{}.png".format(task, epoch))
                 break
             elif i == batch_size-1:
-                vis_imgs2(b_images[i][2], b_labels[i][2], out[i][2], "samples/{}/test_{}.png".format(task, epoch))
+                vis_imgs2(b_images[i][2], b_labels[i][2], _out[i][2], "samples/{}/test_{}.png".format(task, epoch))
 
         ###======================== SAVE MODEL ==========================###
         tl.files.save_npz(net.all_params, name=save_dir+'/cu_net_{}.npz'.format(task), sess=sess)

@@ -20,15 +20,15 @@ core: 1 4
 enhance: 4
 """
 ###============================= SETTINGS ===================================###
-DATA_SIZE = 'half' # (small, half or all)
-
+DATA_SIZE = 'all' # (small, half or all)
+DATASET = 'miccai18'
 save_dir = "data/train_dev_all/"
 if not os.path.exists(save_dir):
     os.makedirs(save_dir)
 
-HGG_data_path = "data/MICCAI_BraTS17_Data_Training/HGG"
-LGG_data_path = "data/MICCAI_BraTS17_Data_Training/LGG"
-survival_csv_path = "data/MICCAI_BraTS17_Data_Training/survival_data.csv"
+HGG_data_path = "data/MICCAI_BraTS18_Data_Training/HGG"
+LGG_data_path = "data/MICCAI_BraTS18_Data_Training/LGG"
+survival_csv_path = "data/MICCAI_BraTS18_Data_Training/survival_data.csv"
 ###==========================================================================###
 
 survival_id_list = []
@@ -414,7 +414,7 @@ print("X_train_input shape:{};\t X_train_target shape:{};\t X_dev_input shape:{}
 # print(X_dev_target_whole.shape)
 # print(X_dev_target_core.shape)
 # print(X_dev_target_enhance.shape)
-np.savez(save_dir + 'dataset_{}.npz'.format(DATA_SIZE), \
+np.savez(save_dir + 'dataset_{}_{}.npz'.format(DATA_SIZE, DATASET), \
          X_train_input, X_train_target, X_dev_input, X_dev_target)
 
 # with open(save_dir + 'train_target_whole.pickle', 'wb') as f:

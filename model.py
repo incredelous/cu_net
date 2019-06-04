@@ -152,8 +152,10 @@ def cu_net(x, is_train=False, reuse=False, n_out=1):
                 up2 = ConcatLayer([up2, cmc_output_1[index]], 3, name='concat2')# shape= (batch_size, 120, 120, 128)
                 conv2 = Conv2d(up2, 64, (3, 3), act=tf.nn.relu,  name='uconv2_1')# shape= (batch_size, 120, 120, 64)
                 conv2 = Conv2d(conv2, 64, (3, 3), act=tf.nn.relu, name='uconv2_2')
-                output = DeConv2d(conv2, 1, (3, 3), (nx/1, ny/1), (2, 2), name='deconv1')# shape = (batch_size, 240, 240, 1)
-                # output = Conv2d(up, n_out, (1, 1), act=tf.nn.sigmoid, name='output')
+                up1 = DeConv2d(conv2, 32, (3, 3), (nx, ny), (2, 2), name='deconv1')# shape = (batch_size, 240, 240, 1)
+                conv1 = Conv2d(up1, 32, (1, 1), act=tf.nn.relu, name='uconv1_1')
+                conv1 = Conv2d(conv1, 32, (1, 1), act=tf.nn.relu, name='uconv1_2')
+                output = Conv2d(conv1, n_out, (1, 1), act=tf.nn.sigmoid, name='output')
                 de_outputs.append(output)
         output_stack = StackLayer(de_outputs, axis=1, name='output_stack')
     return output_stack
